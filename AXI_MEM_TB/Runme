@@ -1,0 +1,3 @@
+vcs -timescale=1ns/1ns -licqueue -kdb -debug_access+all -lca -ntb_opts uvm -sverilog +incdir+ $UVM_HOME/src <test_bench.sv> <design.sv> &&
+simv &
+verdi -ssf novas.fsdb 
