@@ -1,6 +1,67 @@
-//TODO: MONITOR SCOREBOARD
-//TODO: Fix why read data is 0 
+//TODO : Code monitor + Scoreboard 
+//////////////////////////////////////////////
+ 
+interface axi_if();
+  
+  ////////write address channel (aw)
+  
+  logic awvalid;  /// master is sending new address  
+  logic awready;  /// slave is ready to accept request
+  logic [3:0] awid; ////// unique ID for each transaction
+  logic [3:0] awlen; ////// burst length AXI3 : 1 to 16, AXI4 : 1 to 256
+  logic [2:0] awsize; ////unique transaction size : 1,2,4,8,16 ...128 bytes
+  logic [31:0] awaddr; ////write adress of transaction
+  logic [1:0] awburst; ////burst type : fixed , INCR , WRAP
+  
+  
+  //////////write data channel (w)
+  logic wvalid; //// master is sending new data
+  logic wready; //// slave is ready to accept new data 
+  logic [3:0] wid; /// unique id for transaction
+  logic [31:0] wdata; //// data 
+  logic [3:0] wstrb; //// lane having valid data
+  logic wlast; //// last transfer in write burst
+  
+  
+  //////////write response channel (b) 
+  logic bready; ///master is ready to accept response
+  logic bvalid; //// slave has valid response
+  logic [3:0] bid; ////unique id for transaction
+  logic [1:0] bresp; /// status of write transaction 
+  
+  ///////////////read address channel (ar)
+ 
+  logic arvalid;  /// master is sending new address  
+  logic arready;  /// slave is ready to accept request
+  logic [3:0] arid; ////// unique ID for each transaction
+  logic [3:0] arlen; ////// burst length AXI3 : 1 to 16, AXI4 : 1 to 256
+  logic [2:0] arsize; ////unique transaction size : 1,2,4,8,16 ...128 bytes
+  logic [31:0] araddr; ////write adress of transaction
+  logic [1:0] arburst; ////burst type : fixed , INCR , WRAP
+  
+  /////////// read data channel (r)
+  
+  logic rvalid; //// master is sending new data
+  logic rready; //// slave is ready to accept new data 
+  logic [3:0] rid; /// unique id for transaction
+  logic [31:0] rdata; //// data 
+  logic [3:0] rstrb; //// lane having valid data
+  logic rlast; //// last transfer in write burst
+  logic [1:0] rresp; ///status of read transfer
+  
+  ////////////////
+  
+  logic clk;
+  logic resetn;
+  
+  //////////////////
+  logic [31:0] nextaddrwr;
+  logic [31:0] nextaddrrd;
+
+endinterface
+
 ////TESTBENCH CODE
+
 
 `include "uvm_macros.svh"
 import uvm_pkg::*;
@@ -138,7 +199,7 @@ class valid_wrrd_fixed extends uvm_sequence#(transaction);
     tr = transaction::type_id::create("tr");
     `uvm_info(get_type_name,"Inside task body of wrrd_fixed sequence",UVM_NONE)
     
-    repeat(2)begin
+    //repeat(2)begin
       start_item(tr);
       assert(tr.randomize);
       tr.op = wrrdfixed;
@@ -147,10 +208,12 @@ class valid_wrrd_fixed extends uvm_sequence#(transaction);
       tr.awsize = 2; //2 bytes per unique transaction // This combo : 32 bytes = 256 bits
       tr.print();  // Visualize packet
       finish_item(tr);
-    end  
+    //end  
     `uvm_info(get_type_name,"Inside task body of wrrd_fixed sequence",UVM_NONE)
   endtask
 endclass : valid_wrrd_fixed
+
+////DRIVER///////
 
 class driver extends uvm_driver#(transaction);
   `uvm_component_utils(driver)
@@ -168,73 +231,189 @@ class driver extends uvm_driver#(transaction);
       `uvm_error(get_type_name,"Cannot get interface handle");
   endfunction : build_phase
 
-  task wrrd_fixed_mode();    //TODO: find if task is blocking or nonblocking with nba 
-    `uvm_info(get_type_name(),"Driving back to back write and read in fixed mode",UVM_NONE)
-    ////WRITE
-    vif.resetn  <= 1'b1; 
-    vif.awvalid <= 1'b1;
-    vif.awid    <= tr.awid; // random
-    vif.awlen   <= tr.awlen;
-    vif.awsize  <= tr.awsize;
-    vif.awaddr  <= tr.awaddr;
-    vif.awburst <= tr.awburst;
-
-    vif.wvalid  <= 1'b1;
-    vif.wid     <= tr.awid; // want to be same 
-    vif.wdata   <= tr.wdata;
-    vif.wstrb   <= tr.wstrb; // keeping it random for now
-    vif.wlast   <= 0;
-
-    vif.arvalid <= 1'b0; //turn off read ? is it required ??
-    vif.rready  <= 1'b0;
-    vif.bready  <= 1'b0;
-
-    @(posedge vif.clk);         
-    @(posedge vif.wready);  //wait for slave ready to accept
-    @(posedge vif.clk);
-
-    for(int i=0; i < vif.awlen ; i++) begin  // 7 times
-      vif.wdata   <= tr.wdata; // same data think how instead of using $urandom(0,10)
-    end
-    vif.awvalid     <= 1'b0;   //deassert awvalid 
-    vif.wvalid      <= 1'b0;   //deassert wavalid 
-    vif.wlast       <= 1'b1;   //send last packet indicator 
-    vif.bready      <= 1'b1;   //notify slave ready to recieve response
-    @(negedge vif.bvalid); 
-    vif.wlast       <= 1'b0;   //deassert wlast after getting slave ready to send response
-    vif.bready      <= 1'b0;   //deassert bready for master
-
-    `uvm_info(get_type_name(), "Fixed Mode Read Transaction Started", UVM_NONE);
-
-    @(posedge vif.clk);
-
-    vif.arid        <= tr.awid;
-    vif.arlen       <= tr.arlen;
-    vif.arsize      <= tr.awsize;  //keeping it same as wr
-    vif.araddr      <= tr.awaddr;  //keeping it same as wr
-    vif.arburst     <= tr.awburst; //keeping it same as wr
-    vif.arvalid     <= 1'b1;
-    vif.rready      <= 1'b1;  //master ready to read
-
-    for(int i=0; i< (vif.arlen +1); i++)begin
-      @(posedge vif.arready);  //read addrss ready from slave
-      @(posedge vif.clk);
-    end
-
-    @(negedge vif.rlast);      
+ //TODO : Change how vif takes values 
+  task wrrd_fixed_wr();
+            `uvm_info(get_type_name(), "Fixed Mode Write Transaction Started", UVM_NONE);
+    /////////////////////////write logic
+            vif.resetn      <= 1'b1;
+            vif.awvalid     <= 1'b1;
+            vif.awid        <= tr.id;
+            vif.awlen       <= 7;
+            vif.awsize      <= 2;
+            vif.awaddr      <= 5;
+            vif.awburst     <= 0;
+     
+     
+            vif.wvalid      <= 1'b1;
+            vif.wid         <= tr.id;
+            vif.wdata       <= $urandom_range(0,10);
+            vif.wstrb       <= 4'b1111;
+            vif.wlast       <= 0;
+     
+            vif.arvalid     <= 1'b0;  ///turn off read 
+            vif.rready      <= 1'b0;
+            vif.bready      <= 1'b0;
+             @(posedge vif.clk);
+            
+             @(posedge vif.wready);
+             @(posedge vif.clk);
+ 
+     for(int i = 0; i < (vif.awlen); i++)//0 - 6 -> 7
+         begin
+            vif.wdata       <= $urandom_range(0,10);
+            vif.wstrb       <= 4'b1111;
+            @(posedge vif.wready);
+            @(posedge vif.clk);
+         end
+         vif.awvalid     <= 1'b0;
+         vif.wvalid      <= 1'b0;
+         vif.wlast       <= 1'b1;
+         vif.bready      <= 1'b1;
+         @(negedge vif.bvalid); 
+         vif.wlast       <= 1'b0;
+         vif.bready      <= 1'b0;  
+        /////////////////////////////////////// read logic
+   endtask
+   
+   ///////////////////////////////////////////////////////// read transaction in fixed mode
+   
+    task  wrrd_fixed_rd(); 
+        `uvm_info(get_type_name(), "Fixed Mode Read Transaction Started", UVM_NONE);   
+        @(posedge vif.clk);
+ 
+        vif.arid        <= tr.id;
+        vif.arlen       <= 7;
+        vif.arsize      <= 2;
+        vif.araddr      <= 5;
+        vif.arburst     <= 0; 
+        vif.arvalid     <= 1'b1;  
+        vif.rready      <= 1'b1;
+       
+        
+     for(int i = 0; i < (vif.arlen + 1); i++) begin // 0 1  2 3 4 5 6 7
+       @(posedge vif.arready);
+       @(posedge vif.clk);
+      end
+      
+     @(negedge vif.rlast);      
      vif.arvalid <= 1'b0;
-     vif.rready  <= 1'b0;
-
+     vif.rready  <= 1'b0; 
+ 
   endtask
+  //task wrrd_fixed_mode();    //
+  //  `uvm_info(get_type_name(),"Driving back to back write and read in fixed mode",UVM_NONE)
+  //  ////WRITE
+  //  vif.resetn  <= 1'b1; 
+  //  vif.awvalid <= 1'b1;
+  //  vif.awid    <= tr.awid; // random
+  //  vif.awlen   <= tr.awlen;
+  //  vif.awsize  <= tr.awsize;
+  //  vif.awaddr  <= tr.awaddr;
+  //  vif.awburst <= tr.awburst;
+
+  //  vif.wvalid  <= 1'b1;
+  //  vif.wid     <= tr.awid; // want to be same 
+  //  vif.wdata   <= tr.wdata;
+  //  vif.wstrb   <= tr.wstrb; // keeping it random for now
+  //  vif.wlast   <= 0;
+
+  //  vif.arvalid <= 1'b0; //turn off read ? is it required ??
+  //  vif.rready  <= 1'b0;
+  //  vif.bready  <= 1'b0;
+
+  //  @(posedge vif.clk);         
+  //  @(posedge vif.wready);  //wait for slave ready to accept
+  //  @(posedge vif.clk);
+
+  //  for(int i=0; i < vif.awlen ; i++) begin  // 7 times
+  //    vif.wdata   <= tr.wdata; // same data think how instead of using $urandom(0,10)
+  //    vif.wstrb       <= 4'b1111;
+  //          @(posedge vif.wready);
+  //          @(posedge vif.clk);
+  //  end
+  //  vif.awvalid     <= 1'b0;   //deassert awvalid 
+  //  vif.wvalid      <= 1'b0;   //deassert wavalid 
+  //  vif.wlast       <= 1'b1;   //send last packet indicator 
+  //  vif.bready      <= 1'b1;   //notify slave ready to recieve response
+  //  @(negedge vif.bvalid); 
+  //  vif.wlast       <= 1'b0;   //deassert wlast after getting slave ready to send response
+  //  vif.bready      <= 1'b0;   //deassert bready for master
+
+  //  `uvm_info(get_type_name(), "Fixed Mode Read Transaction Started", UVM_NONE);
+
+  //  @(posedge vif.clk);
+
+  //  vif.arid        <= tr.awid;
+  //  vif.arlen       <= tr.arlen;
+  //  vif.arsize      <= tr.awsize;  //keeping it same as wr
+  //  vif.araddr      <= tr.awaddr;  //keeping it same as wr
+  //  vif.arburst     <= tr.awburst; //keeping it same as wr
+  //  vif.arvalid     <= 1'b1;
+  //  vif.rready      <= 1'b1;  //master ready to read
+
+  //  for(int i=0; i< (vif.arlen +1); i++)begin
+  //    @(posedge vif.arready);  //read addrss ready from slave
+  //    @(posedge vif.clk);
+  //  end
+
+  //  @(negedge vif.rlast);      
+  //   vif.arvalid <= 1'b0;
+  //   vif.rready  <= 1'b0;
+
+  //endtask
 
   virtual task run_phase (uvm_phase phase);
     forever begin
       seq_item_port.get_next_item(tr);
-      wrrd_fixed_mode();
+      `uvm_info("DRV", $sformatf("Fixed Mode Write -> Read WLEN:%0d WSIZE:%0d",tr.awlen+1,tr.awsize), UVM_MEDIUM);
+             wrrd_fixed_wr();
+             wrrd_fixed_rd();
       seq_item_port.item_done();
     end
   endtask : run_phase
 endclass : driver
+//////////////MONITOR/////////////
+//class monitor extends uvm_monitor;
+//  `uvm_component_utils(monitor)
+//
+//  transaction tr;
+//  virtual axi_if vif;
+//  uvm_analysis_port#(transaction) sendpktfrmon;
+//
+//  
+//  function new(string name = "monitor", uvm_component parent = null);
+//    super.new(name,parent);
+//  endfunction
+//
+//  virtual function void build_phase(uvm_phase phase); //TODO: Difference between buildphase func and build func
+//    super.build_phase(phase);
+//    tr = transaction::type_id::create("tr");
+//    sendpktfrmon = new("sendpktfrmon",this);
+//    if(!uvm_config_db#(virtual axi_if)::get(this,"","vif",vif))
+//      `uvm_error(get_type_name(),"Cannot get handle to interface");
+//    
+//  endfunction
+//
+//  //virtual task run_phase(uvm_phase phase);
+//  //  if(vif.resetn && vif.awaddr < 128)
+//  //      begin
+//  //        wait(vif.awvalid == 1'b1);
+//  //  
+//  //        for(int i =0; i < (vif.awlen + 1); i++) begin
+//  //        @(posedge vif.wready);
+//  //          tr.wdata   = vif.wdata;
+//
+//  //endtask
+//
+//
+//  
+//
+//
+//
+//
+//endclass
+
+////AGENT///////
 
 class agent extends uvm_agent;
 
@@ -258,6 +437,9 @@ class agent extends uvm_agent;
  endfunction
 endclass
 
+////ENV///////
+
+
 class env extends uvm_env;
 
   `uvm_component_utils(env)
@@ -274,6 +456,8 @@ class env extends uvm_env;
   endfunction
 
 endclass
+
+////TB TOP//////
 
 class test extends uvm_test;
   `uvm_component_utils(test)
@@ -342,7 +526,7 @@ module tb();
       run_test("test");
   end
 
-  always #1 vif.clk = ~vif.clk ;
+  always #5 vif.clk = ~vif.clk ;
 
   initial begin
     $dumpfile("dump.vcd");
