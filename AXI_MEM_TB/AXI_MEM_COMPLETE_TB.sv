@@ -1,4 +1,3 @@
-//TODO : Code monitor + Scoreboard 
 //////////////////////////////////////////////
  
 interface axi_if();
@@ -61,7 +60,6 @@ interface axi_if();
 endinterface
 
 ////TESTBENCH CODE
-
 
 `include "uvm_macros.svh"
 import uvm_pkg::*;
@@ -167,6 +165,7 @@ class transaction extends uvm_sequence_item;
   constraint burst {awburst inside {0,1,2}; arburst inside {0,1,2};} // there is no support for 3 
   constraint valid {awvalid != arvalid;} // why ?
   constraint length {awlen == arlen;}
+  constraint addrrng {awaddr <= 'h80;} //lesser than 128 because mem array 
 
 endclass : transaction
 
@@ -204,6 +203,7 @@ class valid_wrrd_fixed extends uvm_sequence#(transaction);
       assert(tr.randomize);
       tr.op = wrrdfixed;
       tr.awlen = 7;    //burst length  7 + 1 = no of transfers = 8
+      tr.arlen = 7;    //burst length  7 + 1 = no of transfers = 8
       tr.awburst = 0; // address fold type 0 fixed
       tr.awsize = 2; //2 bytes per unique transaction // This combo : 32 bytes = 256 bits
       tr.print();  // Visualize packet
@@ -230,17 +230,15 @@ class driver extends uvm_driver#(transaction);
     if(!uvm_config_db#(virtual axi_if)::get(this,"","vif",vif))
       `uvm_error(get_type_name,"Cannot get interface handle");
   endfunction : build_phase
-
- //TODO : Change how vif takes values 
-  task wrrd_fixed_wr();
-            `uvm_info(get_type_name(), "Fixed Mode Write Transaction Started", UVM_NONE);
+ task wrrd_fixed_wr();
+            `uvm_info("DRV", "Fixed Mode Write Transaction Started", UVM_NONE);
     /////////////////////////write logic
             vif.resetn      <= 1'b1;
             vif.awvalid     <= 1'b1;
             vif.awid        <= tr.id;
             vif.awlen       <= 7;
             vif.awsize      <= 2;
-            vif.awaddr      <= 5;
+            vif.awaddr      <= tr.awaddr;
             vif.awburst     <= 0;
      
      
@@ -260,7 +258,8 @@ class driver extends uvm_driver#(transaction);
  
      for(int i = 0; i < (vif.awlen); i++)//0 - 6 -> 7
          begin
-            vif.wdata       <= $urandom_range(0,10);
+            //vif.wdata       <= $urandom_range(0,10);
+            vif.wdata       <= 'ha + i;
             vif.wstrb       <= 4'b1111;
             @(posedge vif.wready);
             @(posedge vif.clk);
@@ -272,19 +271,17 @@ class driver extends uvm_driver#(transaction);
          @(negedge vif.bvalid); 
          vif.wlast       <= 1'b0;
          vif.bready      <= 1'b0;  
-        /////////////////////////////////////// read logic
    endtask
+    
    
-   ///////////////////////////////////////////////////////// read transaction in fixed mode
-   
-    task  wrrd_fixed_rd(); 
-        `uvm_info(get_type_name(), "Fixed Mode Read Transaction Started", UVM_NONE);   
+        task  wrrd_fixed_rd(); 
+        `uvm_info("DRV", "Fixed Mode Read Transaction Started", UVM_NONE);   
         @(posedge vif.clk);
  
         vif.arid        <= tr.id;
         vif.arlen       <= 7;
         vif.arsize      <= 2;
-        vif.araddr      <= 5;
+        vif.araddr      <= tr.awaddr;
         vif.arburst     <= 0; 
         vif.arvalid     <= 1'b1;  
         vif.rready      <= 1'b1;
@@ -300,67 +297,6 @@ class driver extends uvm_driver#(transaction);
      vif.rready  <= 1'b0; 
  
   endtask
-  //task wrrd_fixed_mode();    //
-  //  `uvm_info(get_type_name(),"Driving back to back write and read in fixed mode",UVM_NONE)
-  //  ////WRITE
-  //  vif.resetn  <= 1'b1; 
-  //  vif.awvalid <= 1'b1;
-  //  vif.awid    <= tr.awid; // random
-  //  vif.awlen   <= tr.awlen;
-  //  vif.awsize  <= tr.awsize;
-  //  vif.awaddr  <= tr.awaddr;
-  //  vif.awburst <= tr.awburst;
-
-  //  vif.wvalid  <= 1'b1;
-  //  vif.wid     <= tr.awid; // want to be same 
-  //  vif.wdata   <= tr.wdata;
-  //  vif.wstrb   <= tr.wstrb; // keeping it random for now
-  //  vif.wlast   <= 0;
-
-  //  vif.arvalid <= 1'b0; //turn off read ? is it required ??
-  //  vif.rready  <= 1'b0;
-  //  vif.bready  <= 1'b0;
-
-  //  @(posedge vif.clk);         
-  //  @(posedge vif.wready);  //wait for slave ready to accept
-  //  @(posedge vif.clk);
-
-  //  for(int i=0; i < vif.awlen ; i++) begin  // 7 times
-  //    vif.wdata   <= tr.wdata; // same data think how instead of using $urandom(0,10)
-  //    vif.wstrb       <= 4'b1111;
-  //          @(posedge vif.wready);
-  //          @(posedge vif.clk);
-  //  end
-  //  vif.awvalid     <= 1'b0;   //deassert awvalid 
-  //  vif.wvalid      <= 1'b0;   //deassert wavalid 
-  //  vif.wlast       <= 1'b1;   //send last packet indicator 
-  //  vif.bready      <= 1'b1;   //notify slave ready to recieve response
-  //  @(negedge vif.bvalid); 
-  //  vif.wlast       <= 1'b0;   //deassert wlast after getting slave ready to send response
-  //  vif.bready      <= 1'b0;   //deassert bready for master
-
-  //  `uvm_info(get_type_name(), "Fixed Mode Read Transaction Started", UVM_NONE);
-
-  //  @(posedge vif.clk);
-
-  //  vif.arid        <= tr.awid;
-  //  vif.arlen       <= tr.arlen;
-  //  vif.arsize      <= tr.awsize;  //keeping it same as wr
-  //  vif.araddr      <= tr.awaddr;  //keeping it same as wr
-  //  vif.arburst     <= tr.awburst; //keeping it same as wr
-  //  vif.arvalid     <= 1'b1;
-  //  vif.rready      <= 1'b1;  //master ready to read
-
-  //  for(int i=0; i< (vif.arlen +1); i++)begin
-  //    @(posedge vif.arready);  //read addrss ready from slave
-  //    @(posedge vif.clk);
-  //  end
-
-  //  @(negedge vif.rlast);      
-  //   vif.arvalid <= 1'b0;
-  //   vif.rready  <= 1'b0;
-
-  //endtask
 
   virtual task run_phase (uvm_phase phase);
     forever begin
@@ -373,45 +309,87 @@ class driver extends uvm_driver#(transaction);
   endtask : run_phase
 endclass : driver
 //////////////MONITOR/////////////
-//class monitor extends uvm_monitor;
-//  `uvm_component_utils(monitor)
-//
-//  transaction tr;
-//  virtual axi_if vif;
-//  uvm_analysis_port#(transaction) sendpktfrmon;
-//
-//  
-//  function new(string name = "monitor", uvm_component parent = null);
-//    super.new(name,parent);
-//  endfunction
-//
-//  virtual function void build_phase(uvm_phase phase); //TODO: Difference between buildphase func and build func
-//    super.build_phase(phase);
-//    tr = transaction::type_id::create("tr");
-//    sendpktfrmon = new("sendpktfrmon",this);
-//    if(!uvm_config_db#(virtual axi_if)::get(this,"","vif",vif))
-//      `uvm_error(get_type_name(),"Cannot get handle to interface");
-//    
-//  endfunction
-//
-//  //virtual task run_phase(uvm_phase phase);
-//  //  if(vif.resetn && vif.awaddr < 128)
-//  //      begin
-//  //        wait(vif.awvalid == 1'b1);
-//  //  
-//  //        for(int i =0; i < (vif.awlen + 1); i++) begin
-//  //        @(posedge vif.wready);
-//  //          tr.wdata   = vif.wdata;
-//
-//  //endtask
-//
-//
-//  
-//
-//
-//
-//
-//endclass
+class monitor extends uvm_monitor;
+  `uvm_component_utils(monitor)
+
+  transaction tr;
+  virtual axi_if vif;
+  uvm_analysis_port#(transaction) sendpktfrmon;
+
+  
+  function new(string name = "monitor", uvm_component parent = null);
+    super.new(name,parent);
+  endfunction
+
+  virtual function void build_phase(uvm_phase phase); //TODO: Difference between buildphase func and build func
+    super.build_phase(phase);
+    tr = transaction::type_id::create("tr");
+    sendpktfrmon = new("sendpktfrmon",this);
+    if(!uvm_config_db#(virtual axi_if)::get(this,"","vif",vif))
+      `uvm_error(get_type_name(),"Cannot get handle to interface");
+    
+  endfunction
+
+  virtual task run_phase(uvm_phase phase);
+    forever begin
+      @(posedge vif.clk);
+      if(vif.resetn)begin
+        //WRITE
+        if(vif.awready) begin
+          tr.awready = vif.awready;
+          tr.awaddr = vif.awaddr;
+          tr.wdata = vif.wdata;
+        end
+        //READ
+        else if(vif.arready) begin
+          tr.arready = vif.arready;
+          tr.araddr = vif.araddr;
+          tr.rdata = vif.rdata;
+        end
+
+        sendpktfrmon.write(tr);
+       end
+    end
+  endtask
+endclass
+
+//////////////SCOREBOARD/////////////
+class scoreboard extends uvm_scoreboard;
+  `uvm_component_utils(scoreboard)
+
+  uvm_analysis_imp#(transaction,scoreboard) recvpktfrmon ;
+  //Array
+  bit[31:0]mem[128] = '{default:0};
+  bit[31:0] addr ;
+
+  function new (string name = "scoreboard", uvm_component parent = null);
+    super.new(name, parent);
+  endfunction
+
+  function void build_phase (uvm_phase phase);
+    super.build_phase(phase);
+    recvpktfrmon = new("recvpktfrmon",this);
+  endfunction
+
+  virtual function void write(transaction tr);
+    //WRITE
+    if(tr.awready) begin
+      addr = tr.awaddr ;
+      mem[addr] = tr.wdata ;
+    end
+    //READ
+    if(tr.arready) begin
+      addr = tr.araddr ;
+      mem[addr] = tr.rdata ;
+      if(tr.rdata == mem[addr]) begin
+        `uvm_info(get_type_name(),$sformatf("DATA_MATCHED rdata = %0h mem[%0h] = %0h",tr.rdata,addr,mem[addr]),UVM_NONE);
+      end else begin
+        `uvm_error(get_type_name(),$sformatf("DATA_MISS_MATCHED rdata = %0h mem[%0h] = %0h",tr.rdata,addr,mem[addr]));
+      end
+    end
+  endfunction
+
+endclass
 
 ////AGENT///////
 
@@ -420,6 +398,7 @@ class agent extends uvm_agent;
  `uvm_component_utils(agent)
 
  driver drv;
+ monitor mon;
  uvm_sequencer#(transaction) seqr;
 
  function new(string name = "agent", uvm_component parent = null);
@@ -428,6 +407,7 @@ class agent extends uvm_agent;
 
  function void build_phase(uvm_phase phase);
     drv = driver::type_id::create("drv",this);
+    mon = monitor::type_id::create("mon",this);
     seqr = uvm_sequencer#(transaction)::type_id::create("seqr", this);
  endfunction
 
@@ -445,6 +425,7 @@ class env extends uvm_env;
   `uvm_component_utils(env)
 
   agent agnt;
+  scoreboard scb;
 
   function new(string name = "env", uvm_component parent = null);
     super.new(name,parent);
@@ -453,7 +434,13 @@ class env extends uvm_env;
   function void build_phase(uvm_phase phase);
     super.build_phase(phase);
     agnt = agent::type_id::create("agnt",this);
+    scb = scoreboard::type_id::create("scb",this);
   endfunction
+
+  virtual function void connect_phase(uvm_phase phase);
+		super.connect_phase(phase);
+		agnt.mon.sendpktfrmon.connect(scb.recvpktfrmon);
+	endfunction
 
 endclass
 
